@@ -1,93 +1,102 @@
-# 公共网络安全检测工具
+# Public Network Security Scanner
 
-基于 Python + PyQt6 + Claude AI 的 Windows 桌面应用，用于检测公共 Wi-Fi 网络的安全风险。
+A Windows desktop application built with Python + PyQt6 for detecting security risks on public Wi-Fi networks, powered by AI analysis (OpenAI / Google Gemini / Anthropic Claude).
 
-## 功能
+## Features
 
-| 检测项 | 说明 |
-|--------|------|
-| ARP 欺骗检测 | 检测网关 MAC 是否被伪造（中间人攻击） |
-| DNS 劫持检测 | 对比本地 DNS 与可信 DNS 解析结果 |
-| SSL/TLS 检测 | 验证 HTTPS 证书有效性和 TLS 版本 |
-| 威胁情报查询 | 通过 AbuseIPDB 检查网关/DNS IP 声誉 |
-| AI 综合分析 | 使用 Claude AI 解读风险并给出建议 |
+| Check | Description |
+|-------|-------------|
+| ARP Spoofing Detection | Detects forged gateway MAC addresses (man-in-the-middle attacks) |
+| DNS Hijacking Detection | Compares local DNS responses against trusted resolvers (8.8.8.8, 1.1.1.1) |
+| SSL/TLS Verification | Validates HTTPS certificate chains and TLS versions |
+| Threat Intelligence | Checks gateway and DNS IPs against the AbuseIPDB database |
+| AI Security Analysis | Plain-English risk summary and recommendations from your chosen AI provider |
 
-## 快速开始
+## Quick Start
 
-### 1. 安装依赖
+### 1. Install Dependencies
 
-双击运行 `install.bat`，或手动执行：
+Double-click `install.bat`, or run manually:
 
 ```
 pip install -r requirements.txt
 ```
 
-### 2. 安装 Npcap（ARP 检测必需）
+### 2. Install Npcap (required for ARP detection)
 
-下载并安装：https://npcap.com/#download
+Download and install from: https://npcap.com/#download
 
-安装时勾选 **WinPcap API-compatible mode**
+During installation, check **WinPcap API-compatible mode**.
 
-### 3. 配置 API Key
+### 3. Configure API Keys
 
-启动程序后，进入 **设置** 页面：
+Launch the app and go to the **Settings** page:
 
-- **Claude API Key**：用于 AI 分析，在 [console.anthropic.com](https://console.anthropic.com) 获取
-- **AbuseIPDB Key**：用于威胁情报，在 [abuseipdb.com](https://www.abuseipdb.com) 免费注册获取
+**AI Provider** — choose one and enter its key:
+| Provider | Key source |
+|----------|-----------|
+| OpenAI (GPT-4o, GPT-4-turbo…) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Google Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| Anthropic Claude | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
 
-### 4. 启动程序
+**AbuseIPDB** (optional) — free registration at [abuseipdb.com](https://www.abuseipdb.com)
 
-双击 `run.bat` 或运行：
+### 4. Run
+
+Double-click `run.bat` or:
 
 ```
 python main.py
 ```
 
-> **注意**：ARP 检测需要管理员权限。以管理员身份运行可获得更完整的检测结果。
+> **Note:** ARP detection requires administrator privileges for a full live probe. Run as Administrator for the most accurate results.
 
-## 打包为 EXE
-
-```
-双击 build.bat
-```
-
-生成的 EXE 位于 `dist\` 目录。
-
-## 项目结构
+## Build as EXE
 
 ```
-├── main.py                 # 程序入口
+build.bat
+```
+
+The standalone `.exe` will be output to the `dist\` folder.
+
+## Project Structure
+
+```
+├── main.py                   # Entry point
 ├── core/
-│   ├── scanner.py          # 扫描引擎（QThread）
-│   ├── arp_detector.py     # ARP 欺骗检测
-│   ├── dns_checker.py      # DNS 劫持检测
-│   ├── ssl_checker.py      # SSL/TLS 检测
-│   └── threat_intel.py     # 威胁情报
+│   ├── scanner.py            # Scan orchestrator (QThread)
+│   ├── arp_detector.py       # ARP spoofing detection
+│   ├── dns_checker.py        # DNS hijacking detection
+│   ├── ssl_checker.py        # SSL/TLS certificate check
+│   └── threat_intel.py       # AbuseIPDB threat intelligence
 ├── ai/
-│   ├── analyzer.py         # Claude API 集成
-│   └── ai_worker.py        # AI QThread 包装
+│   ├── providers.py          # Multi-provider abstraction (OpenAI / Gemini / Claude)
+│   ├── analyzer.py           # AI analysis logic
+│   └── ai_worker.py          # QThread wrapper for AI calls
 ├── ui/
-│   ├── main_window.py      # 主窗口
-│   ├── dashboard.py        # 仪表盘页
-│   ├── scan_panel.py       # 扫描页
-│   ├── history_view.py     # 历史页
-│   ├── settings_view.py    # 设置页
-│   └── widgets.py          # 共享组件
+│   ├── main_window.py        # Main window & sidebar navigation
+│   ├── dashboard.py          # Dashboard page
+│   ├── scan_panel.py         # Scan page
+│   ├── history_view.py       # History page
+│   ├── settings_view.py      # Settings page
+│   └── widgets.py            # Shared UI components
 ├── db/
-│   └── database.py         # SQLite 存储
+│   └── database.py           # SQLite scan history
 ├── utils/
-│   ├── network_utils.py    # 网络工具函数
-│   └── windows_utils.py    # Windows API
+│   ├── network_utils.py      # Network helper functions
+│   └── windows_utils.py      # Windows API utilities
 └── assets/
     └── styles/
-        └── dark_theme.qss  # 深色主题样式
+        └── dark_theme.qss    # Dark theme stylesheet
 ```
 
-## 依赖
+## Requirements
 
 - Python 3.11+
 - PyQt6
-- Scapy + Npcap
-- Anthropic SDK
-- Requests
+- Scapy + [Npcap](https://npcap.com)
+- openai
+- google-generativeai
+- anthropic
+- requests
 - pywin32
