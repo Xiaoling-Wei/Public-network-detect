@@ -8,6 +8,14 @@ from PyQt6.QtCore import Qt
 from db.database import Database
 from ai.providers import PROVIDER_CONFIG
 
+INTERVAL_OPTIONS = [
+    ("1 minute",   "1"),
+    ("5 minutes",  "5"),
+    ("10 minutes", "10"),
+    ("30 minutes", "30"),
+    ("1 hour",     "60"),
+]
+
 
 class SettingsPage(QWidget):
     def __init__(self, db: Database, parent=None):
@@ -36,52 +44,43 @@ class SettingsPage(QWidget):
         layout.setSpacing(20)
         scroll.setWidget(content)
 
+        # ── Auto-scan interval ────────────────────────────────────────
+        layout.addWidget(self._section("Auto-Scan Interval"))
+        layout.addWidget(self._hint(
+            "How often the app automatically re-scans the current network in the background."
+        ))
+        self.interval_combo = self._combo()
+        for label, value in INTERVAL_OPTIONS:
+            self.interval_combo.addItem(label, value)
+        layout.addWidget(self.interval_combo)
+
         # ── AI Provider ──────────────────────────────────────────────
         layout.addWidget(self._section("AI Provider"))
         layout.addWidget(self._hint(
-            "Select the AI provider and enter the corresponding API key.\n"
-            "The AI analyzes scan results and gives you plain-English recommendations."
+            "Select an AI provider and enter its API key.\n"
+            "Used to generate plain-English security analysis after each scan."
         ))
 
-        provider_row = QHBoxLayout()
-        self.provider_combo = QComboBox()
-        self.provider_combo.setStyleSheet(
-            "QComboBox { background:#232838; color:#e0e6f0; border:1px solid #2a2f3d;"
-            " border-radius:8px; padding:6px 12px; font-size:13px; }"
-            "QComboBox::drop-down { border:none; }"
-            "QComboBox QAbstractItemView { background:#1e2330; color:#e0e6f0;"
-            " selection-background-color:#1e3a5f; }"
-        )
+        self.provider_combo = self._combo()
         for key, cfg in PROVIDER_CONFIG.items():
             self.provider_combo.addItem(cfg["name"], key)
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
-        provider_row.addWidget(self.provider_combo)
-        layout.addLayout(provider_row)
+        layout.addWidget(self.provider_combo)
 
-        # Model selector
         model_row = QHBoxLayout()
         model_lbl = QLabel("Model:")
         model_lbl.setStyleSheet("color:#8a96b0; font-size:12px; min-width:50px;")
-        self.model_combo = QComboBox()
-        self.model_combo.setStyleSheet(
-            "QComboBox { background:#232838; color:#e0e6f0; border:1px solid #2a2f3d;"
-            " border-radius:8px; padding:6px 12px; font-size:13px; }"
-            "QComboBox::drop-down { border:none; }"
-            "QComboBox QAbstractItemView { background:#1e2330; color:#e0e6f0;"
-            " selection-background-color:#1e3a5f; }"
-        )
+        self.model_combo = self._combo()
         model_row.addWidget(model_lbl)
         model_row.addWidget(self.model_combo, stretch=1)
         layout.addLayout(model_row)
 
-        # API Key
         layout.addWidget(self._hint("API Key for the selected provider:"))
         key_row = QHBoxLayout()
         self.ai_key_input = QLineEdit()
         self.ai_key_input.setPlaceholderText("Enter API key…")
         self.ai_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         key_row.addWidget(self.ai_key_input)
-
         toggle_ai = QPushButton("Show / Hide")
         toggle_ai.setObjectName("btn-secondary")
         toggle_ai.setMinimumWidth(100)
@@ -89,7 +88,6 @@ class SettingsPage(QWidget):
         key_row.addWidget(toggle_ai)
         layout.addLayout(key_row)
 
-        # Key help links per provider
         self.key_hint_lbl = QLabel("")
         self.key_hint_lbl.setStyleSheet("color:#4fc3f7; font-size:11px;")
         self.key_hint_lbl.setOpenExternalLinks(True)
@@ -98,17 +96,15 @@ class SettingsPage(QWidget):
         # ── AbuseIPDB ────────────────────────────────────────────────
         layout.addWidget(self._section("AbuseIPDB — Threat Intelligence"))
         layout.addWidget(self._hint(
-            "Optional. Used to check if gateway and DNS IPs are flagged as malicious.\n"
-            "Free at abuseipdb.com (Account → API)"
+            "Optional. Checks gateway and DNS IPs against the AbuseIPDB threat database.\n"
+            "Free registration at abuseipdb.com (Account → API)"
         ))
-
         abuse_row = QHBoxLayout()
         self.abuse_key_input = QLineEdit()
         self.abuse_key_input.setPlaceholderText("AbuseIPDB API Key (optional)")
         self.abuse_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         abuse_row.addWidget(self.abuse_key_input)
-
-        toggle_abuse = QPushButton("Show/Hide")
+        toggle_abuse = QPushButton("Show / Hide")
         toggle_abuse.setObjectName("btn-secondary")
         toggle_abuse.setMinimumWidth(100)
         toggle_abuse.clicked.connect(lambda: self._toggle_echo(self.abuse_key_input))
@@ -123,13 +119,13 @@ class SettingsPage(QWidget):
         about_layout.setSpacing(4)
         about_layout.addWidget(QLabel("Public Network Security Scanner  v1.0.0"))
         about_layout.addWidget(self._hint(
-            "Detects ARP spoofing, DNS hijacking, SSL/TLS issues, and threat intelligence risks\n"
-            "on public Wi-Fi networks.\n"
+            "Automatically monitors public Wi-Fi for ARP spoofing, DNS hijacking,\n"
+            "SSL/TLS issues, and threat intelligence risks.\n"
             "Built with Python · PyQt6 · OpenAI / Gemini / Claude"
         ))
         layout.addWidget(about)
 
-        # Save button
+        # Save
         save_btn = QPushButton("Save Settings")
         save_btn.setObjectName("btn-primary")
         save_btn.setFixedHeight(40)
@@ -138,6 +134,8 @@ class SettingsPage(QWidget):
         layout.addWidget(save_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addStretch()
 
+    # ------------------------------------------------------------------
+    # Helpers
     # ------------------------------------------------------------------
 
     def _section(self, text: str) -> QLabel:
@@ -150,6 +148,17 @@ class SettingsPage(QWidget):
         lbl.setStyleSheet("color: #6b7a99; font-size: 11px;")
         lbl.setWordWrap(True)
         return lbl
+
+    def _combo(self) -> QComboBox:
+        cb = QComboBox()
+        cb.setStyleSheet(
+            "QComboBox { background:#232838; color:#e0e6f0; border:1px solid #2a2f3d;"
+            " border-radius:8px; padding:6px 12px; font-size:13px; }"
+            "QComboBox::drop-down { border:none; }"
+            "QComboBox QAbstractItemView { background:#1e2330; color:#e0e6f0;"
+            " selection-background-color:#1e3a5f; }"
+        )
+        return cb
 
     def _toggle_echo(self, field: QLineEdit):
         field.setEchoMode(
@@ -167,26 +176,29 @@ class SettingsPage(QWidget):
             self.model_combo.addItem(m)
 
         hints = {
-            "openai": 'Get key at <a href="https://platform.openai.com/api-keys" style="color:#4fc3f7">platform.openai.com/api-keys</a>',
-            "gemini": 'Get key at <a href="https://aistudio.google.com/apikey" style="color:#4fc3f7">aistudio.google.com/apikey</a>',
-            "claude": 'Get key at <a href="https://console.anthropic.com/settings/keys" style="color:#4fc3f7">console.anthropic.com</a>',
+            "openai": 'Get key: <a href="https://platform.openai.com/api-keys" style="color:#4fc3f7">platform.openai.com/api-keys</a>',
+            "gemini": 'Get key: <a href="https://aistudio.google.com/apikey" style="color:#4fc3f7">aistudio.google.com/apikey</a>',
+            "claude": 'Get key: <a href="https://console.anthropic.com/settings/keys" style="color:#4fc3f7">console.anthropic.com</a>',
         }
         self.key_hint_lbl.setText(hints.get(provider_key, ""))
-
-        # Restore saved key for this provider
-        saved_key = self.db.get_setting(f"ai_key_{provider_key}")
-        self.ai_key_input.setText(saved_key)
+        self.ai_key_input.setText(self.db.get_setting(f"ai_key_{provider_key}"))
 
     def _load_settings(self):
-        # Set provider combo
+        # Interval
+        saved_interval = self.db.get_setting("scan_interval_minutes", "5")
+        for i in range(self.interval_combo.count()):
+            if self.interval_combo.itemData(i) == saved_interval:
+                self.interval_combo.setCurrentIndex(i)
+                break
+
+        # Provider
         saved_provider = self.db.get_setting("ai_provider", "openai")
         for i in range(self.provider_combo.count()):
             if self.provider_combo.itemData(i) == saved_provider:
                 self.provider_combo.setCurrentIndex(i)
                 break
-        self._on_provider_changed()  # populate models + key
+        self._on_provider_changed()
 
-        # Restore model
         saved_model = self.db.get_setting("ai_model")
         if saved_model:
             idx = self.model_combo.findText(saved_model)
@@ -199,11 +211,13 @@ class SettingsPage(QWidget):
         provider_key = self.provider_combo.currentData()
         model        = self.model_combo.currentText()
         api_key      = self.ai_key_input.text().strip()
+        interval     = self.interval_combo.currentData()
 
-        self.db.set_setting("ai_provider", provider_key)
-        self.db.set_setting("ai_model",    model)
-        self.db.set_setting("ai_api_key",  api_key)
+        self.db.set_setting("scan_interval_minutes", interval)
+        self.db.set_setting("ai_provider",           provider_key)
+        self.db.set_setting("ai_model",              model)
+        self.db.set_setting("ai_api_key",            api_key)
         self.db.set_setting(f"ai_key_{provider_key}", api_key)
-        self.db.set_setting("abuse_api_key", self.abuse_key_input.text().strip())
+        self.db.set_setting("abuse_api_key",         self.abuse_key_input.text().strip())
 
-        QMessageBox.information(self, "Saved", "Settings saved successfully.")
+        QMessageBox.information(self, "Saved", "Settings saved. Scan interval will apply from the next cycle.")

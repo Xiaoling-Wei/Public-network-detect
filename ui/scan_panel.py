@@ -11,7 +11,8 @@ from ai.ai_worker import AIWorker
 
 
 class ScanPage(QWidget):
-    scan_saved      = pyqtSignal(dict)
+    scan_saved       = pyqtSignal(dict)
+    scan_started     = pyqtSignal()
     request_navigate = pyqtSignal(int)
 
     def __init__(self, db: Database, parent=None):
@@ -20,7 +21,12 @@ class ScanPage(QWidget):
         self._scan_worker: ScanWorker | None = None
         self._ai_worker:   AIWorker   | None = None
         self._last_summary: dict = {}
+        self._is_scanning = False
         self._build_ui()
+
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -29,38 +35,41 @@ class ScanPage(QWidget):
 
         # Title row
         title_row = QHBoxLayout()
-        title = QLabel("Scan")
+        title = QLabel("Live Scan")
         title.setObjectName("page-title")
         title_row.addWidget(title)
         title_row.addStretch()
 
-        self.scan_btn = QPushButton("Start Scan")
-        self.scan_btn.setObjectName("btn-primary")
-        self.scan_btn.setFixedSize(120, 38)
-        self.scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.scan_btn.clicked.connect(self._start_scan)
+        # Auto-monitoring badge
+        self.auto_badge = QLabel("● Auto-monitoring")
+        self.auto_badge.setStyleSheet(
+            "color: #4caf50; background: #1a2e1a; border-radius: 10px;"
+            " padding: 4px 12px; font-size: 12px; font-weight: bold;"
+        )
+        title_row.addWidget(self.auto_badge)
 
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setObjectName("btn-secondary")
-        self.cancel_btn.setFixedSize(80, 38)
-        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cancel_btn.clicked.connect(self._cancel_scan)
-        self.cancel_btn.setVisible(False)
+        # Manual trigger
+        self.scan_now_btn = QPushButton("Scan Now")
+        self.scan_now_btn.setObjectName("btn-secondary")
+        self.scan_now_btn.setFixedSize(110, 36)
+        self.scan_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.scan_now_btn.clicked.connect(lambda: self.auto_scan("manual"))
 
-        title_row.addWidget(self.scan_btn)
-        title_row.addWidget(self.cancel_btn)
+        title_row.addWidget(self.scan_now_btn)
         outer.addLayout(title_row)
 
+        # Progress bar + status
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFixedHeight(6)
         outer.addWidget(self.progress_bar)
 
-        self.progress_label = QLabel('Click "Start Scan" to analyze the current network.')
+        self.progress_label = QLabel("Waiting for first automatic scan…")
         self.progress_label.setStyleSheet("color: #6b7a99; font-size: 12px;")
         outer.addWidget(self.progress_label)
 
+        # Results scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -72,7 +81,7 @@ class ScanPage(QWidget):
         self._results_layout.setSpacing(12)
         scroll.setWidget(content)
 
-        # Score + network info
+        # Score + network info row
         top_row = QHBoxLayout()
         top_row.setSpacing(16)
 
@@ -86,7 +95,6 @@ class ScanPage(QWidget):
 
         net_col = QVBoxLayout()
         net_col.setSpacing(8)
-
         row1 = QHBoxLayout()
         row1.setSpacing(8)
         self.ssid_card = InfoCard("Wi-Fi Network", "—")
@@ -103,6 +111,11 @@ class ScanPage(QWidget):
 
         net_col.addLayout(row1)
         net_col.addLayout(row2)
+
+        # Last scan info
+        self.last_scan_lbl = QLabel("")
+        self.last_scan_lbl.setStyleSheet("color: #6b7a99; font-size: 11px;")
+        net_col.addWidget(self.last_scan_lbl)
         net_col.addStretch()
         top_row.addLayout(net_col, stretch=1)
         self._results_layout.addLayout(top_row)
@@ -127,7 +140,7 @@ class ScanPage(QWidget):
         ai_layout.setContentsMargins(14, 12, 14, 12)
         ai_layout.setSpacing(6)
 
-        self.ai_status_lbl = QLabel("Waiting for scan to complete…")
+        self.ai_status_lbl = QLabel("AI analysis will appear after the first scan completes.")
         self.ai_status_lbl.setObjectName("ai-text")
         self.ai_status_lbl.setWordWrap(True)
         ai_layout.addWidget(self.ai_status_lbl)
@@ -136,37 +149,33 @@ class ScanPage(QWidget):
         ai_layout.addLayout(self.ai_recs_layout)
 
         self._results_layout.addWidget(self.ai_panel)
-
-        # Bottom buttons
-        btn_row = QHBoxLayout()
-        self.save_btn = QPushButton("Save Report")
-        self.save_btn.setObjectName("btn-primary")
-        self.save_btn.setFixedHeight(38)
-        self.save_btn.setVisible(False)
-        self.save_btn.clicked.connect(self._save_report)
-
-        self.view_history_btn = QPushButton("View History")
-        self.view_history_btn.setObjectName("btn-secondary")
-        self.view_history_btn.setFixedHeight(38)
-        self.view_history_btn.setVisible(False)
-        self.view_history_btn.clicked.connect(lambda: self.request_navigate.emit(2))
-
-        btn_row.addWidget(self.save_btn)
-        btn_row.addWidget(self.view_history_btn)
-        btn_row.addStretch()
-        self._results_layout.addLayout(btn_row)
         self._results_layout.addStretch()
 
     # ------------------------------------------------------------------
+    # Scan trigger (called by monitor or manual button)
+    # ------------------------------------------------------------------
 
-    def _start_scan(self):
+    def auto_scan(self, reason: str = "auto"):
+        if self._is_scanning:
+            return  # Ignore if already running
+
+        self._is_scanning = True
+        self.scan_started.emit()
         self._clear_results()
-        self.scan_btn.setEnabled(False)
-        self.cancel_btn.setVisible(True)
-        self.save_btn.setVisible(False)
-        self.view_history_btn.setVisible(False)
-        self.progress_bar.setValue(0)
-        self.ai_status_lbl.setText("Waiting for scan to complete…")
+        self.scan_now_btn.setEnabled(False)
+
+        reason_labels = {
+            "startup":         "Auto-scan: starting up…",
+            "network_changed": "Auto-scan: new network detected…",
+            "interval":        "Auto-scan: scheduled check…",
+            "manual":          "Manual scan triggered…",
+        }
+        self.progress_label.setText(reason_labels.get(reason, "Scanning…"))
+        self.auto_badge.setText("⟳ Scanning…")
+        self.auto_badge.setStyleSheet(
+            "color: #4fc3f7; background: #1a2a3a; border-radius: 10px;"
+            " padding: 4px 12px; font-size: 12px; font-weight: bold;"
+        )
 
         api_key_abuse = self.db.get_setting("abuse_api_key")
         self._scan_worker = ScanWorker(api_key_abuse=api_key_abuse)
@@ -175,11 +184,6 @@ class ScanPage(QWidget):
         self._scan_worker.scan_complete.connect(self._on_scan_complete)
         self._scan_worker.scan_error.connect(self._on_scan_error)
         self._scan_worker.start()
-
-    def _cancel_scan(self):
-        if self._scan_worker and self._scan_worker.isRunning():
-            self._scan_worker.cancel()
-        self._reset_scan_ui("Scan cancelled.")
 
     def _clear_results(self):
         for layout in [self._checks_layout, self.ai_recs_layout]:
@@ -191,11 +195,9 @@ class ScanPage(QWidget):
         for card in [self.ssid_card, self.gw_card, self.dns_card, self.enc_card]:
             card.set_value("—")
 
-    def _reset_scan_ui(self, msg: str = ""):
-        self.scan_btn.setEnabled(True)
-        self.cancel_btn.setVisible(False)
-        if msg:
-            self.progress_label.setText(msg)
+    # ------------------------------------------------------------------
+    # Worker slots
+    # ------------------------------------------------------------------
 
     def _on_progress(self, percent: int, step: str):
         self.progress_bar.setValue(percent)
@@ -208,6 +210,9 @@ class ScanPage(QWidget):
 
     def _on_scan_complete(self, summary: dict):
         self._last_summary = summary
+        self._is_scanning = False
+        self.scan_now_btn.setEnabled(True)
+
         self.score_widget.set_score(summary.get("score", 0), summary.get("risk_level", "Unknown"))
 
         info = summary.get("network_info", {})
@@ -217,14 +222,25 @@ class ScanPage(QWidget):
         self.dns_card.set_value(dns[0] if dns else "—")
         self.enc_card.set_value(info.get("wifi_security", "—"))
 
-        self.cancel_btn.setVisible(False)
-        self.scan_btn.setEnabled(True)
-        self.save_btn.setVisible(True)
-        self.view_history_btn.setVisible(True)
+        from datetime import datetime
+        self.last_scan_lbl.setText(f"Last scan: {datetime.now().strftime('%H:%M:%S')}")
 
-        self._save_report(silent=True)
+        # Restore badge
+        risk   = summary.get("risk_level", "Unknown")
+        colors = {"Safe": "#4caf50", "Low Risk": "#8bc34a", "Medium Risk": "#ff9800",
+                  "High Risk": "#f44336", "Critical": "#b71c1c"}
+        c = colors.get(risk, "#8a96b0")
+        self.auto_badge.setText("● Auto-monitoring")
+        self.auto_badge.setStyleSheet(
+            f"color: {c}; background: #1a1d23; border-radius: 10px;"
+            " padding: 4px 12px; font-size: 12px; font-weight: bold;"
+        )
 
-        # Launch AI analysis
+        # Save to DB
+        self.db.save_scan(summary)
+        self.scan_saved.emit(summary)
+
+        # AI analysis
         self.ai_status_lbl.setText("Requesting AI analysis…")
         provider = self.db.get_setting("ai_provider", "openai")
         api_key  = self.db.get_setting("ai_api_key")
@@ -235,8 +251,14 @@ class ScanPage(QWidget):
         self._ai_worker.start()
 
     def _on_scan_error(self, error: str):
+        self._is_scanning = False
+        self.scan_now_btn.setEnabled(True)
         self.progress_label.setText(f"Scan error: {error}")
-        self._reset_scan_ui()
+        self.auto_badge.setText("● Auto-monitoring")
+        self.auto_badge.setStyleSheet(
+            "color: #ff9800; background: #1a1d23; border-radius: 10px;"
+            " padding: 4px 12px; font-size: 12px; font-weight: bold;"
+        )
 
     def _on_ai_done(self, analysis: dict):
         if analysis.get("error"):
@@ -259,17 +281,5 @@ class ScanPage(QWidget):
             lbl.setWordWrap(True)
             self.ai_recs_layout.addWidget(lbl)
 
-        self._last_summary["ai_analysis"] = self.ai_status_lbl.text()
-        self._last_summary["ai_recommendations"] = analysis.get("recommendations", [])
-
     def _on_ai_error(self, error: str):
         self.ai_status_lbl.setText(f"AI analysis failed: {error}")
-
-    def _save_report(self, silent: bool = False):
-        if not self._last_summary:
-            return
-        record_id = self.db.save_scan(self._last_summary)
-        self._last_summary["_db_id"] = record_id
-        if not silent:
-            self.progress_label.setText("Report saved to history.")
-        self.scan_saved.emit(self._last_summary)

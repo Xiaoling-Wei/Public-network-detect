@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from db.database import Database
-from ui.widgets import ScoreWidget, CheckResultItem, InfoCard
+from ui.widgets import ScoreWidget, CheckResultItem, InfoCard, RISK_COLORS
 
 
 class DashboardPage(QWidget):
@@ -22,9 +22,25 @@ class DashboardPage(QWidget):
         outer.setContentsMargins(24, 20, 24, 20)
         outer.setSpacing(16)
 
+        # Title row with monitoring status
+        title_row = QHBoxLayout()
         title = QLabel("Dashboard")
         title.setObjectName("page-title")
-        outer.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        self.status_badge = QLabel("● Auto-monitoring active")
+        self.status_badge.setStyleSheet(
+            "color: #4caf50; background: #1a2e1a; border-radius: 10px;"
+            " padding: 4px 14px; font-size: 12px; font-weight: bold;"
+        )
+        title_row.addWidget(self.status_badge)
+        outer.addLayout(title_row)
+
+        # Countdown label
+        self.countdown_lbl = QLabel("")
+        self.countdown_lbl.setStyleSheet("color: #6b7a99; font-size: 11px;")
+        outer.addWidget(self.countdown_lbl)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -60,8 +76,8 @@ class DashboardPage(QWidget):
 
         row1 = QHBoxLayout()
         row1.setSpacing(10)
-        self.ssid_card     = InfoCard("Wi-Fi Network")
-        self.gateway_card  = InfoCard("Gateway")
+        self.ssid_card    = InfoCard("Wi-Fi Network")
+        self.gateway_card = InfoCard("Gateway")
         row1.addWidget(self.ssid_card)
         row1.addWidget(self.gateway_card)
 
@@ -75,16 +91,16 @@ class DashboardPage(QWidget):
         info_col.addLayout(row1)
         info_col.addLayout(row2)
 
-        self.last_scan_label = QLabel("No scan performed yet.")
+        self.last_scan_label = QLabel("Waiting for first scan…")
         self.last_scan_label.setStyleSheet("color: #6b7a99; font-size: 12px;")
         info_col.addWidget(self.last_scan_label)
 
-        scan_btn = QPushButton("Start Scan")
-        scan_btn.setObjectName("btn-primary")
-        scan_btn.setFixedHeight(40)
-        scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        scan_btn.clicked.connect(self.navigate_to_scan)
-        info_col.addWidget(scan_btn)
+        scan_now_btn = QPushButton("Scan Now")
+        scan_now_btn.setObjectName("btn-secondary")
+        scan_now_btn.setFixedHeight(36)
+        scan_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        scan_now_btn.clicked.connect(self.navigate_to_scan)
+        info_col.addWidget(scan_now_btn)
         info_col.addStretch()
 
         top_row.addLayout(info_col, stretch=1)
@@ -110,7 +126,7 @@ class DashboardPage(QWidget):
         ai_layout.setContentsMargins(14, 12, 14, 12)
         ai_layout.setSpacing(8)
 
-        self.ai_assessment = QLabel("Complete a scan to receive an AI-powered security analysis.")
+        self.ai_assessment = QLabel("AI analysis will appear automatically after the first scan.")
         self.ai_assessment.setObjectName("ai-text")
         self.ai_assessment.setWordWrap(True)
         ai_layout.addWidget(self.ai_assessment)
@@ -121,6 +137,21 @@ class DashboardPage(QWidget):
         layout.addWidget(self.ai_panel)
         layout.addStretch()
 
+    # ------------------------------------------------------------------
+    # Public update slots
+    # ------------------------------------------------------------------
+
+    def update_countdown(self, mins: int, secs: int):
+        self.countdown_lbl.setText(f"Next scan in {mins}:{secs:02d}")
+
+    def set_scanning(self):
+        self.status_badge.setText("⟳ Scanning…")
+        self.status_badge.setStyleSheet(
+            "color: #4fc3f7; background: #1a2a3a; border-radius: 10px;"
+            " padding: 4px 14px; font-size: 12px; font-weight: bold;"
+        )
+        self.countdown_lbl.setText("")
+
     def refresh_last_scan(self, scan_data: dict = None):
         if scan_data is None:
             history = self.db.get_history(limit=1)
@@ -130,7 +161,18 @@ class DashboardPage(QWidget):
             self.score_widget.set_score(0, "Not Scanned")
             return
 
-        self.score_widget.set_score(scan_data.get("score", 0), scan_data.get("risk_level", "Unknown"))
+        score = scan_data.get("score", 0)
+        risk  = scan_data.get("risk_level", "Unknown")
+
+        self.score_widget.set_score(score, risk)
+
+        # Restore badge color
+        color = RISK_COLORS.get(risk, "#8a96b0")
+        self.status_badge.setText("● Auto-monitoring active")
+        self.status_badge.setStyleSheet(
+            f"color: {color}; background: #1a1d23; border-radius: 10px;"
+            " padding: 4px 14px; font-size: 12px; font-weight: bold;"
+        )
 
         net = scan_data.get("network_info", {})
         self.ssid_card.set_value(scan_data.get("ssid", "—"))
@@ -140,6 +182,7 @@ class DashboardPage(QWidget):
         self.security_card.set_value(net.get("wifi_security", "—"))
         self.last_scan_label.setText(f"Last scan: {scan_data.get('scan_time', '—')}")
 
+        # Check items
         while self.checks_container.count():
             item = self.checks_container.takeAt(0)
             if item.widget():
